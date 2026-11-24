@@ -280,6 +280,10 @@ body.overlay-mode .stage-9x16 {
   border-color: #86efac;
   background: linear-gradient(90deg, rgba(22, 163, 74, 0.35), rgba(15, 23, 42, 0.85));
 }
+.guess-row.is-wrong-len {
+  border-color: rgba(244, 63, 94, 0.38);
+}
+.guesser-pts.warn { color: #fda4af; }
 .guess-row.placeholder {
   opacity: 0.4;
   border-style: dashed;
