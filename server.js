@@ -167,6 +167,18 @@ app.get('/api/music-file', (_req, res) => {
   fs.createReadStream(full).pipe(res);
 });
 
+const lastRawChats = [];
+app.get('/debug-chat', (_req, res) => {
+  res.json({
+    connected: tiktok.connected,
+    username: tiktok.username,
+    round: game.round,
+    targetLen: game.targetWord.length,
+    phase: game.phase,
+    lastRawChats
+  });
+});
+
 app.get('/healthz', (_req, res) => {
   res.status(200).json({
     ok: true,
@@ -278,8 +290,8 @@ function startNewRound() {
   game.keyboard = {};
   game.winner = null;
   game.roundStartedAt = Date.now();
-  game.roundDurationSec = nextWord.length >= 8 ? 90 : 75;
-  game.nextHintAt = Date.now() + 20000;
+  game.roundDurationSec = nextWord.length >= 8 ? 110 : 90;
+  game.nextHintAt = Date.now() + 24000;
 
   // Reveal 1 starter letter (2 for 8+ letters) so viewers immediately have an anchor
   const initialReveals = nextWord.length >= 8 ? 2 : 1;
@@ -495,14 +507,27 @@ function submitGuess({ uniqueId, nickname, word, isBot = false, isVip = false, a
 }
 
 function handleViewerChat({ uniqueId, nickname, comment }) {
-  const raw = String(comment || '').normalize('NFC').trim();
+  const raw = String(comment || '').normalize('NFC').replace(/[\u200B-\u200F\uFEFF\u00A0]/g, '').trim();
   if (!raw) return;
-  // Support single-word guess directly or with leading ! / . and trailing punctuation/emojis
+  // Support single-word guess directly or with leading ! / . and any trailing emojis/punctuation
   const cleaned = raw.replace(/^[!.]+/, '').trim();
-  const match = cleaned.match(/^([a-zA-ZçəğıöşüÇƏĞİIÖŞÜ]{2,14})(?:[\s!?.,\u2600-\u27BF\uD83C-\uDBFF\uDC00-\uDFFF]*)$/);
-  if (!match) return;
-  const word = match[1];
-  submitGuess({ uniqueId, nickname, word, isBot: false });
+  const match = cleaned.match(/^([a-zA-ZçəğıöşüÇƏĞİIÖŞÜ]{2,14})[^\p{L}\p{N}]*$/u);
+  let outcome;
+  if (!match) {
+    outcome = { accepted: false, reason: 'not_single_word' };
+  } else {
+    outcome = submitGuess({ uniqueId, nickname, word: match[1], isBot: false });
+  }
+  lastRawChats.unshift({
+    ts: new Date().toISOString(),
+    nick: nickname,
+    raw,
+    round: game.round,
+    targetLen: game.targetWord.length,
+    accepted: !!outcome?.accepted,
+    reason: outcome?.reason || 'ok'
+  });
+  if (lastRawChats.length > 20) lastRawChats.length = 20;
 }
 
 function getMaskedPattern() {
