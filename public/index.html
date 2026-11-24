@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="az">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>🔤 Canlı Söz Tap (50,000 Söz) — TikTok LIVE</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800&family=Montserrat:wght@700;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="app-layout" id="appLayout">
+    <!-- 9:16 TIKTOK PORTRAIT STAGE -->
+    <div class="stage-wrap">
+      <div class="stage-9x16" id="stage">
+        <canvas id="confettiCanvas"></canvas>
+
+        <!-- TOP BAR -->
+        <header class="top-bar">
+          <div class="brand-pill">🔤 SÖZ TAP <span class="word-count-chip" id="wordCounter">#1 / 50,000</span></div>
+          <div class="timer-pill" id="timerPill">⏱ <span id="timeLeft">75</span>s</div>
+        </header>
+
+        <!-- MASTER CLUE BAR (DISCOVERED LETTERS) -->
+        <section class="clue-card">
+          <div class="clue-head">
+            <span class="clue-label" id="clueLabel">🎯 5 HƏRFLİ SÖZÜ TAP!</span>
+            <span class="like-pill">❤️ İpucu: <b id="likePct">0%</b></span>
+          </div>
+          <div class="master-tiles" id="masterTiles"></div>
+          <div class="timer-track"><div class="timer-fill" id="timerFill"></div></div>
+        </section>
+
+        <!-- INTERACTIVE VIEWER GUESSES TABLE -->
+        <section class="guess-board" id="guessBoard">
+          <div class="board-head">
+            <span>📋 İNTERAKTİV TƏXMİN CƏDVƏLİ</span>
+            <span class="hint-guide" id="hintGuide">Çatda 5 hərfli söz yaz!</span>
+          </div>
+          <div class="guess-rows" id="guessRows"></div>
+
+          <!-- WIN / TIMEOUT BANNER OVERLAY -->
+          <div class="round-overlay hidden" id="roundOverlay">
+            <div class="overlay-badge" id="overlayBadge">🏆 QALİB!</div>
+            <div class="overlay-word" id="overlayWord">KİTAB</div>
+            <div class="overlay-sub" id="overlaySub">Elvin (+100 xal)</div>
+          </div>
+        </section>
+
+        <!-- LIVE AZERBAIJANI ALPHABET TRACKER -->
+        <section class="az-keyboard" id="azKeyboard"></section>
+
+        <!-- BOTTOM HUD: FEED + LEADERBOARD -->
+        <footer class="bottom-hud">
+          <div class="feed-strip" id="feedStrip">
+            <span class="feed-dot">✨</span>
+            <span id="feedText">Çatda təxminini yaz — yaşıl hərflər xal gətirir!</span>
+            <span class="music-pill hidden" id="overlayMusicBadge">🎵 Musiqi</span>
+          </div>
+
+          <div class="lb-card">
+            <div class="lb-head">
+              <span>🏆 SÖZ USTALARI (TOP 3)</span>
+              <span class="live-tag" id="liveBadge">⚫ Offline</span>
+            </div>
+            <div class="lb-list" id="lbList">
+              <div class="lb-empty">İlk tapan lider olur! 👑</div>
+            </div>
+          </div>
+        </footer>
+      </div>
+    </div>
+
+    <!-- HOST CONTROL PANEL (Hidden automatically when ?overlay=1) -->
+    <aside class="host-panel" id="hostPanel">
+      <div class="hp-header">
+        <h2>🎛️ Aparıcı Studiyası</h2>
+        <p>TikTok LIVE Söz Tap (50,000 Unikal Söz) və Arxa Fon Musiqisi</p>
+      </div>
+
+      <div class="hp-card">
+        <label class="hp-label">TikTok LIVE Studio / OBS Linki</label>
+        <div class="hp-row">
+          <input type="text" id="obsUrlInput" readonly />
+          <button class="btn btn-gold" id="btnCopyUrl">📋 Kopyala</button>
+        </div>
+      </div>
+
+      <div class="hp-card">
+        <label class="hp-label">TikTok Kanal Bağlantısı</label>
+        <div class="hp-row">
+          <input type="text" id="tiktokUserInput" placeholder="bakuremixlab" />
+          <button class="btn btn-green" id="btnConnect">Qoşul</button>
+          <button class="btn btn-red" id="btnDisconnect">Ayır</button>
+        </div>
+        <div class="hp-status" id="hostStatus">Gözlənilir...</div>
+      </div>
+
+      <div class="hp-card">
+        <label class="hp-label">Söz Oyunu İdarəetməsi (<span id="poolStats">50,000 söz hazırdır</span>)</label>
+        <div class="hp-grid-2">
+          <button class="btn btn-blue" id="btnRevealHint">💡 Hərf İpucu Aç</button>
+          <button class="btn btn-gold" id="btnNextWord">⏭️ Növbəti Söz</button>
+          <button class="btn btn-slate" id="btnToggleSoftAz">✨ Yumşaq Əlifba: AÇIQ</button>
+          <button class="btn btn-slate" id="btnToggleBots">🤖 Demo Botlar: BAĞLI</button>
+        </div>
+        <div class="mode-row">
+          <button class="mode-btn active" data-mode="classic">Klassik (4–7)</button>
+          <button class="mode-btn" data-mode="five">Yalnız 5 Hərf</button>
+          <button class="mode-btn" data-mode="all">Tam 50,000</button>
+          <button class="mode-btn" data-mode="hard">Çətin (8–14)</button>
+        </div>
+        <div class="hp-row" style="margin-top:8px;">
+          <input type="text" id="testWordInput" placeholder="Test söz yaz (məs: qalmaq)..." />
+          <button class="btn btn-green" id="btnSendTestWord">Göndər</button>
+        </div>
+      </div>
+
+      <!-- BACKGROUND MUSIC STUDIO -->
+      <div class="hp-card music-studio">
+        <label class="hp-label">🎵 Arxa Fon Musiqisi (İstədiyin Musiqini Qur)</label>
+        <div class="music-now" id="musicNowLabel">Seçili: Gecə Studiyası (Chill Lofi)</div>
+
+        <div class="hp-grid-2" style="margin-top:8px;">
+          <button class="btn btn-green" id="btnMusicPlayPause">▶ Başlat</button>
+          <button class="btn btn-slate" id="btnMusicLoop">🔁 Təkrar: AÇIQ</button>
+        </div>
+
+        <div class="vol-row">
+          <span>🔊 Səs: <b id="volVal">45%</b></span>
+          <input type="range" id="musicVolume" min="0" max="100" value="45" />
+        </div>
+
+        <label class="chk-row">
+          <input type="checkbox" id="chkOverlayMusic" checked />
+          <span>TikTok Studio Overlay-də də səsləndir</span>
+        </label>
+
+        <!-- Upload custom MP3/WAV/OGG -->
+        <div class="upload-box">
+          <input type="file" id="musicFileInput" accept="audio/*" hidden />
+          <button class="btn btn-gold" id="btnUploadMusic" style="width:100%;">📂 Kompüterdən MP3 / Musiqi Yüklə</button>
+          <div class="upload-hint" id="uploadStatus">MP3, WAV, OGG, M4A (maks 20MB)</div>
+        </div>
+
+        <!-- External audio URL -->
+        <div class="hp-row" style="margin-top:8px;">
+          <input type="text" id="musicUrlInput" placeholder="Və ya birbaşa MP3 linki yapışdır..." />
+          <button class="btn btn-blue" id="btnApplyMusicUrl">Qoş</button>
+        </div>
+
+        <!-- Built-in ambient studio presets -->
+        <div class="preset-row">
+          <button class="preset-btn active" data-preset="lofi">🌙 Chill Lofi</button>
+          <button class="preset-btn" data-preset="pulse">⚡ Quiz Pulse</button>
+          <button class="preset-btn" data-preset="synth">🏆 Çempion</button>
+        </div>
+      </div>
+
+      <div class="hp-card">
+        <div class="hp-grid-2">
+          <button class="btn btn-slate" id="btnSfxMute">🔔 Effekt Səsi: AÇIQ</button>
+          <button class="btn btn-red" id="btnResetScores">🔄 Xalları Sıfırla</button>
+        </div>
+        <button class="btn btn-slate" id="btnResetCycle" style="width:100%;margin-top:6px;">♻️ Söz Dövrünü Sıfırla</button>
+      </div>
+    </aside>
+  </div>
+
+  <audio id="bgAudioEl" crossorigin="anonymous"></audio>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
