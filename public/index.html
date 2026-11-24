@@ -144,11 +144,12 @@
           <div class="upload-hint" id="uploadStatus">MP3, WAV, OGG, M4A (maks 20MB)</div>
         </div>
 
-        <!-- External audio URL -->
+        <!-- External audio or YouTube URL -->
         <div class="hp-row" style="margin-top:8px;">
-          <input type="text" id="musicUrlInput" placeholder="Və ya birbaşa MP3 linki yapışdır..." />
+          <input type="text" id="musicUrlInput" placeholder="YouTube və ya birbaşa MP3 linki yapışdır..." />
           <button class="btn btn-blue" id="btnApplyMusicUrl">Qoş</button>
         </div>
+        <div class="upload-hint" id="urlStatus">YouTube (watch / youtu.be / shorts) və ya MP3 linki dəstəklənir</div>
 
         <!-- Built-in ambient studio presets -->
         <div class="preset-row">
@@ -168,6 +169,7 @@
     </aside>
   </div>
 
+  <div id="ytPlayerBox" class="yt-player-box hidden"><div id="ytPlayerMount"></div></div>
   <audio id="bgAudioEl" crossorigin="anonymous"></audio>
   <script src="/socket.io/socket.io.js"></script>
   <script src="/app.js"></script>
