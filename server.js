@@ -24,7 +24,7 @@ const SOFT_MAP = {
 const VALID_LETTER_RE = /^[A-ZÇƏĞHXİIQLMNOÖPRSŞTUÜVYZ]+$/;
 
 function toAzUpper(str) {
-  return String(str || '').trim().toLocaleUpperCase('az');
+  return String(str || '').normalize('NFC').trim().toLocaleUpperCase('az');
 }
 
 function toSoftChar(ch) {
@@ -362,23 +362,55 @@ function addScore(uniqueId, nickname, delta, solved = false) {
   return 0;
 }
 
-function submitGuess({ uniqueId, nickname, word, isBot = false, isVip = false }) {
+function submitGuess({ uniqueId, nickname, word, isBot = false, isVip = false, allowRepeat = false }) {
   if (game.phase !== 'playing') return { accepted: false, reason: 'round_ended' };
-  const clean = toAzUpper(word);
-  if (!VALID_LETTER_RE.test(clean) || clean.length !== game.targetWord.length) {
-    return { accepted: false, reason: 'length_or_chars' };
+  const clean = toAzUpper(word).replace(/[^A-ZÇƏĞHXİIQLMNOÖPRSŞTUÜVYZ]/g, '').slice(0, 14);
+  if (!clean || !VALID_LETTER_RE.test(clean) || clean.length < 2) {
+    return { accepted: false, reason: 'invalid_chars' };
   }
 
   const dedupKey = game.softAz ? toSoftWord(clean) : clean;
-  if (game.guessedKeys.has(dedupKey)) {
+  if (!allowRepeat && game.guessedKeys.has(dedupKey)) {
     return { accepted: false, reason: 'already_guessed' };
   }
   game.guessedKeys.add(dedupKey);
 
-  const tiles = evaluateGuess(clean);
+  const targetLen = game.targetWord.length;
+  const lengthMismatch = clean.length !== targetLen;
+  let tiles;
+  if (!lengthMismatch) {
+    tiles = evaluateGuess(clean);
+  } else {
+    // Evaluate letters of a wrong-length guess so it still appears clearly on the interactive table
+    const targetChars = [...game.targetWord];
+    const targetCounts = {};
+    targetChars.forEach((tc) => {
+      const k = game.softAz ? toSoftChar(tc) : tc;
+      targetCounts[k] = (targetCounts[k] || 0) + 1;
+    });
+    const gChars = [...clean];
+    tiles = gChars.map((ch, idx) => {
+      if (idx < targetLen && charsEqual(ch, targetChars[idx], game.softAz)) {
+        const k = game.softAz ? toSoftChar(targetChars[idx]) : targetChars[idx];
+        targetCounts[k] = Math.max(0, (targetCounts[k] || 0) - 1);
+        return { ch: targetChars[idx], status: 'correct' };
+      }
+      return { ch, status: null };
+    });
+    tiles = tiles.map((t) => {
+      if (t.status) return t;
+      const k = game.softAz ? toSoftChar(t.ch) : t.ch;
+      if (targetCounts[k] > 0) {
+        targetCounts[k] -= 1;
+        return { ch: t.ch, status: 'present' };
+      }
+      return { ch: t.ch, status: 'absent' };
+    });
+  }
+
   let newGreens = 0;
   let yellows = 0;
-  const allCorrect = tiles.every((t) => t.status === 'correct');
+  const allCorrect = !lengthMismatch && tiles.every((t) => t.status === 'correct');
 
   const priority = { absent: 1, present: 2, correct: 3 };
   tiles.forEach((tile, idx) => {
@@ -386,7 +418,7 @@ function submitGuess({ uniqueId, nickname, word, isBot = false, isVip = false })
     if (!prev || priority[tile.status] > priority[prev]) {
       game.keyboard[tile.ch] = tile.status;
     }
-    if (tile.status === 'correct') {
+    if (!lengthMismatch && tile.status === 'correct') {
       if (!game.revealedSet.has(idx)) {
         game.revealedSet.add(idx);
         newGreens += 1;
@@ -396,7 +428,7 @@ function submitGuess({ uniqueId, nickname, word, isBot = false, isVip = false })
     }
   });
 
-  let pointsEarned = newGreens * 15 + yellows * 5 + (isVip ? 20 : 0);
+  let pointsEarned = lengthMismatch ? 0 : (newGreens * 15 + yellows * 5 + (isVip ? 20 : 0));
   if (allCorrect) pointsEarned += 100;
 
   const displayName = (nickname || 'Oyunçu').slice(0, 22);
@@ -409,7 +441,6 @@ function submitGuess({ uniqueId, nickname, word, isBot = false, isVip = false })
       addScore(uniqueId, displayName, bonus, false);
     }
   } else if (isBot && allCorrect) {
-    // Bots don't pollute top scorers leaderboard unless real players haven't joined
     streak = 1;
   }
 
@@ -419,6 +450,9 @@ function submitGuess({ uniqueId, nickname, word, isBot = false, isVip = false })
     nickname: displayName,
     letters: tiles,
     exactSolved: allCorrect,
+    lengthMismatch,
+    typedLen: clean.length,
+    targetLen,
     isBot,
     isVip,
     pointsEarned,
@@ -443,10 +477,14 @@ function submitGuess({ uniqueId, nickname, word, isBot = false, isVip = false })
     clearTimeout(game.nextRoundTimer);
     game.nextRoundTimer = setTimeout(() => startNewRound(), 4200);
   } else {
-    if (newGreens > 0) {
+    if (lengthMismatch) {
+      pushFeed(`📏 ${displayName} "${clean}" yazdı (${clean.length}/${targetLen} hərf)`, 'info');
+      io.emit('word-fx', { type: 'tile' });
+    } else if (newGreens > 0) {
       pushFeed(`🟩 ${displayName}: ${newGreens} düzgün hərf açdı! (+${pointsEarned})`, 'hit');
       io.emit('word-fx', { type: 'hit', newGreens });
     } else {
+      pushFeed(`🔤 ${displayName} "${clean}" təxmin etdi`, 'info');
       io.emit('word-fx', { type: 'tile' });
     }
     broadcastState();
@@ -456,12 +494,11 @@ function submitGuess({ uniqueId, nickname, word, isBot = false, isVip = false })
 }
 
 function handleViewerChat({ uniqueId, nickname, comment }) {
-  const raw = String(comment || '').trim();
+  const raw = String(comment || '').normalize('NFC').trim();
   if (!raw) return;
-  // Support single-word guess directly or prefixed with ! / .
+  // Support single-word guess directly or with leading ! / . and trailing punctuation/emojis
   const cleaned = raw.replace(/^[!.]+/, '').trim();
-  // Take first token if user wrote just one word (or word + punctuation like "kitab!")
-  const match = cleaned.match(/^([a-zA-ZçəğıöşüÇƏĞİIÖŞÜ]+)[!?.,]*$/);
+  const match = cleaned.match(/^([a-zA-ZçəğıöşüÇƏĞİIÖŞÜ]{2,14})(?:[\s!?.,\u2600-\u27BF\uD83C-\uDBFF\uDC00-\uDFFF]*)$/);
   if (!match) return;
   const word = match[1];
   submitGuess({ uniqueId, nickname, word, isBot: false });
@@ -660,13 +697,30 @@ io.on('connection', (socket) => {
   });
   socket.on('manual-guess', ({ nickname, word, isVip } = {}) => {
     const clean = toAzUpper(word);
-    if (!clean) return;
-    submitGuess({
+    if (!clean) {
+      socket.emit('guess-feedback', { ok: false, msg: '❌ Boş söz göndərmək olmaz.' });
+      return;
+    }
+    const res = submitGuess({
       uniqueId: `host_${Date.now()}_${Math.random()}`,
       nickname: nickname || 'Aparıcı',
       word: clean,
-      isVip: !!isVip
+      isVip: !!isVip,
+      allowRepeat: true
     });
+    if (!res.accepted) {
+      socket.emit('guess-feedback', {
+        ok: false,
+        msg: res.reason === 'round_ended' ? '⏳ Yeni söz açılır, 2 saniyə gözlə...' : '❌ Yalnız hərflər (min. 2 hərf) yaz!'
+      });
+    } else {
+      socket.emit('guess-feedback', {
+        ok: true,
+        msg: res.entry.lengthMismatch
+          ? `✅ Cədvələ düşdü (${res.entry.typedLen}/${res.entry.targetLen} hərf)`
+          : `✅ "${clean}" cədvələ əlavə olundu!`
+      });
+    }
   });
   socket.on('reset-scores', () => {
     game.leaderboard.clear();
