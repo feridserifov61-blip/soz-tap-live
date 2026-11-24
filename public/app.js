@@ -47,6 +47,7 @@
     btnToggleBots: document.getElementById('btnToggleBots'),
     testWordInput: document.getElementById('testWordInput'),
     btnSendTestWord: document.getElementById('btnSendTestWord'),
+    testFeedback: document.getElementById('testFeedback'),
     musicNowLabel: document.getElementById('musicNowLabel'),
     btnMusicPlayPause: document.getElementById('btnMusicPlayPause'),
     btnMusicLoop: document.getElementById('btnMusicLoop'),
@@ -444,22 +445,25 @@
       const g = guesses[r];
       const rowEl = document.createElement('div');
       if (g) {
-        rowEl.className = `guess-row${r === 0 && hasNewTop ? ' is-new' : ''}${g.exactSolved ? ' is-win' : ''}`;
+        const rowSz = tileSizeClass(Math.max(len, (g.letters || []).length));
+        rowEl.className = `guess-row${r === 0 && hasNewTop ? ' is-new' : ''}${g.exactSolved ? ' is-win' : ''}${g.lengthMismatch ? ' is-wrong-len' : ''}`;
         const info = document.createElement('div');
         info.className = 'guesser-info';
         const nm = document.createElement('div');
         nm.className = `guesser-name${g.isVip ? ' vip' : ''}`;
         nm.textContent = `${g.isVip ? '👑 ' : ''}${g.nickname}`;
         const pts = document.createElement('div');
-        pts.className = 'guesser-pts';
-        pts.textContent = g.exactSolved ? `🏆 TAPDI (+${g.pointsEarned})` : (g.pointsEarned > 0 ? `+${g.pointsEarned} xal` : 'Cəhd');
+        pts.className = `guesser-pts${g.lengthMismatch ? ' warn' : ''}`;
+        if (g.exactSolved) pts.textContent = `🏆 TAPDI (+${g.pointsEarned})`;
+        else if (g.lengthMismatch) pts.textContent = `📏 ${g.typedLen}/${g.targetLen} hərf`;
+        else pts.textContent = g.pointsEarned > 0 ? `+${g.pointsEarned} xal` : 'Cəhd';
         info.append(nm, pts);
 
         const tilesWrap = document.createElement('div');
         tilesWrap.className = 'row-tiles';
         (g.letters || []).forEach((item) => {
           const t = document.createElement('div');
-          t.className = `g-tile ${szClass} ${item.status}`;
+          t.className = `g-tile ${rowSz} ${item.status}`;
           t.textContent = item.ch;
           tilesWrap.appendChild(t);
         });
@@ -562,6 +566,12 @@
 
   // ==================== SOCKET LISTENERS ====================
   socket.on('word-state', renderState);
+  socket.on('guess-feedback', (fb) => {
+    if (el.testFeedback && fb && fb.msg) {
+      el.testFeedback.textContent = fb.msg;
+      el.testFeedback.style.color = fb.ok ? '#4ade80' : '#fca5a5';
+    }
+  });
   socket.on('music-state', (m) => {
     musicState = m;
     syncAudioPlayback();
