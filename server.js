@@ -87,10 +87,18 @@ function persistProgress() {
 }
 
 // ==================== MUSIC STATE ====================
+function extractYoutubeId(rawUrl) {
+  const s = String(rawUrl || '').trim();
+  if (!s) return '';
+  const m = s.match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|live\/|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+  return m ? m[1] : '';
+}
+
 const savedMusic = loadJson(MUSIC_META_PATH, {
-  sourceType: 'preset', // 'preset' | 'upload' | 'url'
+  sourceType: 'preset', // 'preset' | 'upload' | 'url' | 'youtube'
   presetId: 'lofi',
   customUrl: '',
+  youtubeId: '',
   uploadedFile: '',
   uploadedMime: '',
   title: 'Gecə Studiyası (Chill Lofi)',
@@ -223,6 +231,7 @@ function getPublicMusicState() {
     sourceType: musicState.sourceType,
     presetId: musicState.presetId,
     customUrl: musicState.customUrl,
+    youtubeId: musicState.youtubeId || '',
     audioSrc: musicState.sourceType === 'upload' && musicState.uploadedFile
       ? `/api/music-file?v=${encodeURIComponent(musicState.uploadedFile + '_' + musicState.title)}`
       : (musicState.sourceType === 'url' ? musicState.customUrl : ''),
@@ -676,8 +685,8 @@ io.on('connection', (socket) => {
   socket.on('disconnect-tiktok', () => disconnectTikTok(true));
 
   // Music control events
-  socket.on('music-update', (patch = {}) => {
-    if (patch.sourceType && ['preset', 'upload', 'url'].includes(patch.sourceType)) {
+  socket.on('music-update', async (patch = {}) => {
+    if (patch.sourceType && ['preset', 'upload', 'url', 'youtube'].includes(patch.sourceType)) {
       musicState.sourceType = patch.sourceType;
     }
     if (typeof patch.presetId === 'string') {
@@ -689,7 +698,23 @@ io.on('connection', (socket) => {
     }
     if (typeof patch.customUrl === 'string') {
       musicState.customUrl = patch.customUrl.trim();
-      if (musicState.customUrl && musicState.sourceType === 'url') {
+      const ytId = extractYoutubeId(musicState.customUrl);
+      if (ytId) {
+        musicState.sourceType = 'youtube';
+        musicState.youtubeId = ytId;
+        musicState.title = `YouTube (${ytId})`;
+        try {
+          const ctrl = new AbortController();
+          const t = setTimeout(() => ctrl.abort(), 2200);
+          const r = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent('https://www.youtube.com/watch?v=' + ytId)}&format=json`, { signal: ctrl.signal });
+          clearTimeout(t);
+          if (r.ok) {
+            const meta = await r.json();
+            if (meta && meta.title) musicState.title = `YouTube: ${meta.title.slice(0, 42)}`;
+          }
+        } catch (_) {}
+      } else if (musicState.customUrl && musicState.sourceType === 'url') {
+        musicState.youtubeId = '';
         musicState.title = patch.title || 'Xarici Musiqi (URL)';
       }
     }
