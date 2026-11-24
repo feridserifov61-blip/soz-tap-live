@@ -617,6 +617,30 @@ body.overlay-mode .stage-9x16 {
 .upload-box { margin-top: 10px; }
 .upload-hint { font-size: 11px; color: var(--muted); text-align: center; margin-top: 4px; }
 
+.yt-player-box {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  width: 240px;
+  height: 135px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1.5px solid rgba(245, 197, 66, 0.45);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.7);
+  background: #000;
+  z-index: 40;
+}
+.yt-player-box.hidden { display: none; }
+body.overlay-mode .yt-player-box {
+  width: 2px;
+  height: 2px;
+  right: 0;
+  bottom: 0;
+  opacity: 0.01;
+  border: none;
+  pointer-events: none;
+}
+
 @media (max-width: 860px) {
   .app-layout { flex-direction: column; align-items: center; }
   .host-panel { width: 100%; max-width: 440px; }
