@@ -32,6 +32,7 @@
     lbList: document.getElementById('lbList'),
     confettiCanvas: document.getElementById('confettiCanvas'),
     bgAudioEl: document.getElementById('bgAudioEl'),
+    ytPlayerBox: document.getElementById('ytPlayerBox'),
     // Host panel
     obsUrlInput: document.getElementById('obsUrlInput'),
     btnCopyUrl: document.getElementById('btnCopyUrl'),
@@ -57,6 +58,7 @@
     uploadStatus: document.getElementById('uploadStatus'),
     musicUrlInput: document.getElementById('musicUrlInput'),
     btnApplyMusicUrl: document.getElementById('btnApplyMusicUrl'),
+    urlStatus: document.getElementById('urlStatus'),
     btnSfxMute: document.getElementById('btnSfxMute'),
     btnResetScores: document.getElementById('btnResetScores'),
     btnResetCycle: document.getElementById('btnResetCycle')
@@ -219,6 +221,117 @@
   }
 
   let currentAudioSrc = '';
+  let ytApiRequested = false;
+  let ytApiReady = false;
+  let ytPlayer = null;
+  let ytReady = false;
+  let currentYtId = '';
+
+  function setUrlHint(msg) {
+    if (el.urlStatus) el.urlStatus.textContent = msg;
+  }
+
+  el.bgAudioEl.addEventListener('error', () => {
+    if (musicState && musicState.sourceType === 'url') {
+      setUrlHint('❌ Bu link birbaşa MP3/audio deyil. YouTube və ya birbaşa .mp3 linki istifadə et!');
+    }
+  });
+
+  function ensureYoutubeApi() {
+    if (window.YT && window.YT.Player) {
+      ytApiReady = true;
+      return;
+    }
+    if (ytApiRequested) return;
+    ytApiRequested = true;
+    const prev = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = () => {
+      ytApiReady = true;
+      if (typeof prev === 'function') prev();
+      syncYoutubePlayer();
+    };
+    const tag = document.createElement('script');
+    tag.src = 'https://www.youtube.com/iframe_api';
+    document.head.appendChild(tag);
+  }
+
+  function syncYoutubePlayer() {
+    if (!musicState || musicState.sourceType !== 'youtube' || !musicState.youtubeId) {
+      if (el.ytPlayerBox) el.ytPlayerBox.classList.add('hidden');
+      if (ytPlayer && ytReady && typeof ytPlayer.pauseVideo === 'function') {
+        try { ytPlayer.pauseVideo(); } catch (_) {}
+      }
+      return;
+    }
+
+    const shouldPlayHere = !!musicState.playing && (!isOverlay || !!musicState.playOnOverlay);
+    if (el.ytPlayerBox) el.ytPlayerBox.classList.toggle('hidden', !shouldPlayHere);
+
+    if (!shouldPlayHere) {
+      if (ytPlayer && ytReady && typeof ytPlayer.pauseVideo === 'function') {
+        try { ytPlayer.pauseVideo(); } catch (_) {}
+      }
+      return;
+    }
+
+    ensureYoutubeApi();
+    if (!ytApiReady) return;
+
+    const vid = musicState.youtubeId;
+    const volPct = Math.round(Math.max(0, Math.min(1, Number(musicState.volume ?? 0.45))) * 100);
+
+    if (!ytPlayer) {
+      currentYtId = vid;
+      ytPlayer = new window.YT.Player('ytPlayerMount', {
+        width: isOverlay ? '2' : '240',
+        height: isOverlay ? '2' : '135',
+        videoId: vid,
+        playerVars: {
+          autoplay: 1,
+          controls: 1,
+          rel: 0,
+          modestbranding: 1,
+          playsinline: 1,
+          loop: musicState.loop ? 1 : 0,
+          playlist: vid,
+          origin: window.location.origin
+        },
+        events: {
+          onReady: (ev) => {
+            ytReady = true;
+            ev.target.setVolume(volPct);
+            ev.target.unMute();
+            if (musicState && musicState.playing) ev.target.playVideo();
+          },
+          onStateChange: (ev) => {
+            if (ev.data === window.YT.PlayerState.ENDED && musicState && musicState.loop && musicState.playing) {
+              ev.target.seekTo(0);
+              ev.target.playVideo();
+            }
+          },
+          onError: (ev) => {
+            if (ev.data === 101 || ev.data === 150) {
+              setUrlHint('⚠️ Bu YouTube videosu kənar saytda oxunmağa qapalıdır — başqa link və ya MP3 seç!');
+            } else {
+              setUrlHint('⚠️ YouTube videosu yüklənmədi (linki yoxla).');
+            }
+          }
+        }
+      });
+      return;
+    }
+
+    if (!ytReady) return;
+    ytPlayer.setVolume(volPct);
+    if (vid !== currentYtId) {
+      currentYtId = vid;
+      ytPlayer.loadVideoById(vid);
+      setUrlHint(`✅ YouTube qoşuldu: ${vid}`);
+    } else if (typeof ytPlayer.getPlayerState === 'function' && ytPlayer.getPlayerState() !== 1) {
+      ytPlayer.playVideo();
+    }
+  }
+
   function syncAudioPlayback() {
     if (!musicState) return;
     const shouldPlayHere = !!musicState.playing && (!isOverlay || !!musicState.playOnOverlay);
@@ -230,10 +343,16 @@
 
     if (musicState.sourceType === 'preset') {
       el.bgAudioEl.pause();
+      syncYoutubePlayer();
       if (shouldPlayHere) startPresetSynth();
       else stopPresetSynth();
+    } else if (musicState.sourceType === 'youtube') {
+      stopPresetSynth();
+      el.bgAudioEl.pause();
+      syncYoutubePlayer();
     } else {
       stopPresetSynth();
+      syncYoutubePlayer();
       const src = musicState.audioSrc || '';
       if (src !== currentAudioSrc) {
         currentAudioSrc = src;
@@ -522,11 +641,15 @@
     });
   });
   if (el.btnApplyMusicUrl && el.musicUrlInput) {
-    el.btnApplyMusicUrl.addEventListener('click', () => {
+    const applyUrl = () => {
       const url = el.musicUrlInput.value.trim();
       if (!url) return;
+      getCtx();
+      setUrlHint('⏳ Link qoşulur...');
       socket.emit('music-update', { sourceType: 'url', customUrl: url, playing: true });
-    });
+    };
+    el.btnApplyMusicUrl.addEventListener('click', applyUrl);
+    el.musicUrlInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') applyUrl(); });
   }
   if (el.btnUploadMusic && el.musicFileInput) {
     el.btnUploadMusic.addEventListener('click', () => el.musicFileInput.click());
