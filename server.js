@@ -171,6 +171,7 @@ app.get('/healthz', (_req, res) => {
   res.status(200).json({
     ok: true,
     connected: tiktok.connected,
+    tiktokError: tiktok.error,
     phase: game.phase,
     totalWords: ALL_WORDS.length,
     usedWords: usedWordsSet.size,
@@ -608,19 +609,23 @@ async function connectTikTok(username, isManual = false) {
   try {
     const conn = new TikTokLiveConnection(cleanUser, {
       processInitialData: false,
-      enableExtendedGiftInfo: true
+      enableExtendedGiftInfo: false,
+      requestPollingIntervalMs: 1200
     });
     tiktok.conn = conn;
 
     conn.on(WebcastEvent.CHAT, (data) => {
-      const uniqueId = data?.user?.uniqueId || data?.uniqueId || `u_${Math.random()}`;
-      const nickname = data?.user?.nickname || data?.nickname || uniqueId;
-      const comment = data?.comment || '';
+      if (tiktok.conn !== conn) return;
+      const uniqueId = String(data?.user?.displayId || data?.user?.uniqueId || data?.user?.id || data?.user?.userId || data?.uniqueId || `u_${Math.random()}`);
+      const nickname = String(data?.user?.nickname || data?.nickname || uniqueId);
+      const comment = String(data?.content ?? data?.comment ?? '').trim();
+      if (!comment) return;
       handleViewerChat({ uniqueId, nickname, comment });
     });
 
     conn.on(WebcastEvent.LIKE, (data) => {
-      const count = Number(data?.likeCount || 1);
+      if (tiktok.conn !== conn) return;
+      const count = Number(data?.count ?? data?.likeCount ?? 1);
       game.likeEnergy = Math.min(100, game.likeEnergy + count * 2);
       if (game.likeEnergy >= 100) {
         game.likeEnergy = 0;
@@ -631,10 +636,12 @@ async function connectTikTok(username, isManual = false) {
     });
 
     conn.on(WebcastEvent.GIFT, (data) => {
-      if (data?.giftType === 1 && !data?.repeatEnd) return;
-      const uniqueId = data?.user?.uniqueId || data?.uniqueId || `gift_${Date.now()}`;
-      const nickname = data?.user?.nickname || data?.nickname || 'VIP';
-      const giftName = data?.giftName || 'Hədiyyə';
+      if (tiktok.conn !== conn) return;
+      const giftType = data?.gift?.type ?? data?.giftDetails?.giftType ?? data?.giftType;
+      if (giftType === 1 && !data?.repeatEnd) return;
+      const uniqueId = String(data?.user?.displayId || data?.user?.uniqueId || data?.user?.id || `gift_${Date.now()}`);
+      const nickname = String(data?.user?.nickname || data?.nickname || 'VIP');
+      const giftName = data?.gift?.name || data?.giftDetails?.giftName || data?.giftName || 'Hədiyyə';
       addScore(uniqueId, nickname, 50, false);
       revealOneHiddenLetter(`🎁 ${nickname} (${giftName})`);
       pushFeed(`🎁 ${nickname} ${giftName} göndərdi (+50 xal & ipucu!)`, 'vip');
@@ -642,30 +649,61 @@ async function connectTikTok(username, isManual = false) {
     });
 
     conn.on(WebcastEvent.ROOM_USER, (data) => {
-      tiktok.viewerCount = Number(data?.viewerCount || 0);
-      broadcastState();
+      if (tiktok.conn !== conn) return;
+      const rawVc = data?.viewerCount ?? data?.total ?? data?.totalUser;
+      if (rawVc !== undefined && rawVc !== null && rawVc !== '') {
+        const vc = Number(rawVc);
+        if (Number.isFinite(vc)) {
+          tiktok.viewerCount = vc;
+          broadcastState();
+        }
+      }
     });
 
-    conn.on(ControlEvent.DISCONNECTED, () => {
+    conn.on(WebcastEvent.STREAM_END, () => {
       if (tiktok.conn !== conn) return;
       tiktok.connected = false;
       tiktok.connecting = false;
+      tiktok.error = 'Canlı yayım bitdi';
       broadcastState();
       clearTimeout(tiktok.reconnectTimer);
       tiktok.reconnectTimer = setTimeout(() => connectTikTok(tiktok.username, false), 15000);
     });
 
-    await conn.connect();
+    conn.on(ControlEvent.DISCONNECTED, () => {
+      if (tiktok.conn !== conn) return;
+      if (tiktok.connected) {
+        tiktok.connected = false;
+        tiktok.connecting = false;
+        broadcastState();
+        clearTimeout(tiktok.reconnectTimer);
+        tiktok.reconnectTimer = setTimeout(() => connectTikTok(tiktok.username, false), 5000);
+      }
+    });
+
+    conn.on(ControlEvent.ERROR, (err) => {
+      if (tiktok.conn !== conn) return;
+      console.error('[TikTok ERROR]', err?.exception?.message || err?.info || err);
+    });
+
+    const state = await conn.connect();
     if (tiktok.conn !== conn) return;
     tiktok.connected = true;
     tiktok.connecting = false;
+    tiktok.viewerCount = Number(state?.roomInfo?.data?.user_count ?? state?.roomInfo?.user_count ?? 0) || 0;
     tiktok.error = '';
     pushFeed(`🔴 @${cleanUser} TikTok LIVE-a qoşuldu!`, 'win');
     broadcastState();
   } catch (err) {
+    if (tiktok.conn !== conn) return;
+    const rawMsg = err?.message || String(err || '');
+    const isOffline = /offline|not live|UserOffline|isn't online/i.test(rawMsg);
     tiktok.connected = false;
     tiktok.connecting = false;
-    tiktok.error = isManual ? (err?.message || 'Yayım tapılmadı (Offline?)') : 'Yayım gözlənilir...';
+    tiktok.error = isOffline
+      ? `@${cleanUser} canlı yayımda deyil`
+      : `Qoşulma xətası: ${rawMsg.slice(0, 90)}`;
+    console.warn('[TikTok] Qoşulmadı:', tiktok.error);
     broadcastState();
     clearTimeout(tiktok.reconnectTimer);
     tiktok.reconnectTimer = setTimeout(() => connectTikTok(tiktok.username, false), 15000);
